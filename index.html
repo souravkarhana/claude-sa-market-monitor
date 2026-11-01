@@ -1,0 +1,436 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>:root{color-scheme:light}html,body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>SA Market Monitor</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Schibsted+Grotesk:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: one narrow dashboard column. Today's regime card on top, MR20 chart with breadth bars, then the daily table. */
+:root {
+  --bg: #eff3f2;
+  --surface: #ffffff;
+  --fg: #12201d;
+  --muted: #566763;
+  --line: #d6dfdc;
+  --accent: #0d7a70;
+  --up: #12805c;
+  --down: #c2410c;
+  --r-oversold: #2457d6;
+  --r-falling: #c2410c;
+  --r-chop: #6b7a99;
+  --r-neutral: #0d7a70;
+  --r-overbought: #a16207;
+  --r-overextended: #9333b8;
+  --font-ui: "Schibsted Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1311; --surface: #121c1a; --fg: #e3ece9; --muted: #8da29d; --line: #25342f;
+    --accent: #3cc2b3; --up: #4cc79a; --down: #f08a5d;
+    --r-oversold: #6c97ff; --r-falling: #f08a5d; --r-chop: #94a3c4; --r-neutral: #3cc2b3;
+    --r-overbought: #e2b24a; --r-overextended: #c98af0;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1311; --surface: #121c1a; --fg: #e3ece9; --muted: #8da29d; --line: #25342f;
+  --accent: #3cc2b3; --up: #4cc79a; --down: #f08a5d;
+  --r-oversold: #6c97ff; --r-falling: #f08a5d; --r-chop: #94a3c4; --r-neutral: #3cc2b3;
+  --r-overbought: #e2b24a; --r-overextended: #c98af0;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--fg);
+  font-family: var(--font-ui); font-size: 15px; line-height: 1.5;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 20px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; }
+h1 { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+.asof { color: var(--muted); font-size: 13px; }
+.asof b { color: var(--fg); font-weight: 600; }
+
+.chip {
+  --c: var(--muted);
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+  font-size: 12.5px; font-weight: 600; color: var(--c);
+  background: color-mix(in srgb, var(--c) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+}
+.chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c); }
+.rg-Oversold { --c: var(--r-oversold); }
+.rg-Falling { --c: var(--r-falling); }
+.rg-Chop { --c: var(--r-chop); }
+.rg-Neutral { --c: var(--r-neutral); }
+.rg-Overbought { --c: var(--r-overbought); }
+.rg-Overextended { --c: var(--r-overextended); }
+
+/* today card */
+.today { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 20px 28px; }
+.today .lead { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.today .label { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.regime-big { font-size: 34px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1; color: var(--c); text-wrap: balance; }
+.setup { font-size: 16px; font-weight: 500; text-wrap: balance; }
+.note { color: var(--muted); font-size: 14px; }
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; align-self: start; }
+.stat { background: var(--surface); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat .k { font-size: 12px; color: var(--muted); }
+.stat .v { font-size: 26px; font-weight: 600; line-height: 1.15; }
+.stat .s { font-size: 12px; color: var(--muted); }
+.pos { color: var(--up); }
+.neg { color: var(--down); }
+
+/* chart */
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px 16px 12px; display: flex; flex-direction: column; gap: 10px; }
+.panel-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+h2 { margin: 0; font-size: 16px; font-weight: 600; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg button { font: inherit; font-size: 13px; padding: 5px 11px; background: transparent; color: var(--muted); border: 0; border-right: 1px solid var(--line); cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); font-weight: 600; }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#readout { min-height: 22px; font-size: 13px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: center; }
+#readout b { color: var(--fg); font-weight: 600; }
+#chart { width: 100%; min-width: 0; }
+#chart svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.t-axis { fill: var(--muted); font-family: var(--font-num); font-size: 10.5px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--c); display: inline-block; }
+
+/* table */
+.filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 13px; color: var(--muted); }
+select { font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--fg); }
+.tbl { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; }
+table { width: 100%; min-width: 820px; border-collapse: collapse; font-size: 13.5px; }
+th { text-align: left; font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding: 9px 10px; border-bottom: 1px solid var(--line); background: var(--surface); white-space: nowrap; }
+td { padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th.r, td.r { text-align: right; }
+td.date { white-space: nowrap; }
+td.setup-c { min-width: 190px; }
+td.note-c { min-width: 200px; color: var(--muted); }
+.more { align-self: flex-start; font: inherit; font-size: 13px; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
+.more:hover { border-color: var(--accent); }
+
+/* guide */
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 4px 16px; }
+summary { cursor: pointer; padding: 12px 0; font-weight: 600; font-size: 16px; }
+.guide { overflow-x: auto; margin-bottom: 10px; }
+.guide table { min-width: 720px; }
+.fine { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; max-width: 70ch; }
+footer { color: var(--muted); font-size: 12.5px; max-width: 80ch; }
+#err { display: none; background: var(--surface); border: 1px solid var(--down); color: var(--down); border-radius: 10px; padding: 12px 14px; }
+
+@media (max-width: 720px) {
+  .today { grid-template-columns: minmax(0, 1fr); padding: 16px; }
+  .regime-big { font-size: 28px; }
+  h1 { font-size: 21px; }
+}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>SA Market Monitor</h1>
+    <div class="asof">NSE EOD data &middot; aakhri din <b id="asof" class="num">...</b></div>
+  </header>
+  <div id="err" role="alert"></div>
+
+  <section class="today" aria-label="Aaj ki reading">
+    <div class="lead">
+      <div class="label">Aaj ka regime</div>
+      <div class="regime-big" id="t-regime">...</div>
+      <div class="setup" id="t-setup"></div>
+      <div class="note" id="t-note"></div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="k">MR20 (20 EMA ke upar %)</span><span class="v num" id="t-mr">-</span><span class="s num" id="t-mr-s"></span></div>
+      <div class="stat"><span class="k">U4 (4%+ chadhe)</span><span class="v num pos" id="t-u4">-</span><span class="s num" id="t-u4-s"></span></div>
+      <div class="stat"><span class="k">D4 (4%+ gire)</span><span class="v num neg" id="t-d4">-</span><span class="s num" id="t-d4-s"></span></div>
+      <div class="stat"><span class="k">W20 (5 din me 20%+)</span><span class="v num" id="t-w20">-</span><span class="s num" id="t-w20-s"></span></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="MR20 chart">
+    <div class="panel-head">
+      <h2>MR20 aur breadth</h2>
+      <div class="seg" id="range" role="group" aria-label="Chart range">
+        <button type="button" data-n="30" aria-pressed="false">30 din</button>
+        <button type="button" data-n="60" aria-pressed="true">60 din</button>
+        <button type="button" data-n="120" aria-pressed="false">120 din</button>
+        <button type="button" data-n="250" aria-pressed="false">1 saal</button>
+        <button type="button" data-n="750" aria-pressed="false">3 saal</button>
+      </div>
+    </div>
+    <div id="readout" class="num" aria-live="polite"></div>
+    <div id="chart"></div>
+    <div class="legend" id="legend"></div>
+  </section>
+
+  <section class="panel" aria-label="Daily table">
+    <div class="panel-head">
+      <h2>Din-ba-din</h2>
+      <div class="filters">
+        <label for="f-regime">Regime</label>
+        <select id="f-regime"><option value="">Sab</option></select>
+      </div>
+    </div>
+    <div class="tbl" tabindex="0">
+      <table>
+        <thead><tr><th>Date</th><th class="r">MR20</th><th class="r">Move</th><th class="r">U4</th><th class="r">D4</th><th class="r">W20</th><th>Regime</th><th>Setup</th><th>Note</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <button type="button" class="more" id="more">Aur dikhao</button>
+  </section>
+
+  <details>
+    <summary>Regime guide (2016 se 2026 ka data)</summary>
+    <div class="guide">
+      <table>
+        <thead><tr><th>Regime</th><th>Kab lagta hai</th><th class="r">Din</th><th class="r">Avg 5d</th><th>Kya karna hai</th></tr></thead>
+        <tbody id="guide"></tbody>
+      </table>
+    </div>
+    <p class="fine">Ye bina stop-loss ke 5 din hold ka result hai. Avg return chhota hai aur edge asli me sirf Oversold me clear hai. Data sirf aaj chal rahe stocks ka hai (delisted nahi), isliye result thoda zyada acha dikh sakta hai.</p>
+  </details>
+
+  <footer>MR20 = % stocks 20 EMA ke upar. U4/D4 = 4%+ chadhe/gire (volume badhne ke saath). W20 = 5 din me 20%+ chadhe stocks. Ye market breadth ka tool hai, trading salah nahi. Naya din roz shaam ko bhavcopy aane ke baad judta hai.</footer>
+</div>
+
+<script>
+(function () {
+  var REG = ["Oversold", "Falling", "Chop", "Neutral", "Overbought", "Overextended"];
+  var GUIDE = [
+    ["Oversold", "MR20 < 20", 192, 0.94, "Bounce / dip setups, size badhao"],
+    ["Falling (3+ days)", "MR20 lagataar 3+ din gira", 296, -0.08, "Naye long avoid; MR20 20 se neeche aaye tab bounce dekho"],
+    ["Chop", "Pichle 5 moves me 3+ baar direction badli", 599, -0.06, "Chhota size, jaldi exit; breakout me stop zaroori"],
+    ["Neutral", "20 se 80 ke beech, koi extreme nahi", 1374, 0.02, "Breakout sirf stop-loss ke saath, har trade chhota"],
+    ["Overbought", "MR20 >= 80", 359, 0.21, "Naye breakout me zyada size mat lo; chal rahe hold karo"],
+    ["Overextended", "MR20 >= 80 aur W20 >= 20", 80, 0.04, "Fresh breakout chase mat karo; hold stocks pe trailing stop"]
+  ];
+  var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var rows = [], rangeN = 60, shown = 25, hoverIdx = null;
+
+  function $(id) { return document.getElementById(id); }
+  function key(regime) { return regime.split(" ")[0]; }
+  function fmtDate(s, withYear) {
+    var p = s.split("-");
+    return p[2] + " " + MON[+p[1] - 1] + (withYear === false ? "" : " " + p[0]);
+  }
+  function sign(x) { return (x > 0 ? "+" : "") + x.toFixed(1); }
+  function chip(regime) {
+    var c = document.createElement("span");
+    c.className = "chip rg-" + key(regime);
+    c.textContent = regime;
+    return c;
+  }
+  function td(text, cls) {
+    var t = document.createElement("td");
+    if (cls) t.className = cls;
+    if (text != null) t.textContent = text;
+    return t;
+  }
+
+  function renderToday() {
+    var r = rows[rows.length - 1], p = rows[rows.length - 2] || r;
+    $("asof").textContent = fmtDate(r.date);
+    var big = $("t-regime");
+    big.textContent = r.regime;
+    big.className = "regime-big rg-" + key(r.regime);
+    $("t-setup").textContent = r.setup;
+    $("t-note").textContent = r.note || "Koi khaas flag nahi.";
+    $("t-mr").textContent = r.MR20.toFixed(1);
+    var ms = $("t-mr-s");
+    ms.textContent = sign(r.MR20_change) + " kal se" + (r.up_streak > 1 ? " · " + r.up_streak + " din upar" : r.down_streak > 1 ? " · " + r.down_streak + " din neeche" : "");
+    ms.className = "s num " + (r.MR20_change > 0 ? "pos" : r.MR20_change < 0 ? "neg" : "");
+    $("t-u4").textContent = r.U4; $("t-u4-s").textContent = "kal " + p.U4;
+    $("t-d4").textContent = r.D4; $("t-d4-s").textContent = "kal " + p.D4;
+    $("t-w20").textContent = r.W20; $("t-w20-s").textContent = "kal " + p.W20;
+  }
+
+  function renderTable() {
+    var f = $("f-regime").value;
+    var list = [];
+    for (var i = rows.length - 1; i >= 0; i--) {
+      if (!f || key(rows[i].regime) === f) list.push(rows[i]);
+    }
+    var tb = $("rows");
+    tb.textContent = "";
+    list.slice(0, shown).forEach(function (r) {
+      var tr = document.createElement("tr");
+      tr.appendChild(td(fmtDate(r.date), "date num"));
+      tr.appendChild(td(r.MR20.toFixed(1), "r num"));
+      tr.appendChild(td(sign(r.MR20_change), "r num " + (r.MR20_change > 0 ? "pos" : r.MR20_change < 0 ? "neg" : "")));
+      tr.appendChild(td(r.U4, "r num"));
+      tr.appendChild(td(r.D4, "r num"));
+      tr.appendChild(td(r.W20, "r num"));
+      var c = document.createElement("td"); c.appendChild(chip(r.regime)); tr.appendChild(c);
+      tr.appendChild(td(r.setup, "setup-c"));
+      tr.appendChild(td(r.note, "note-c"));
+      tb.appendChild(tr);
+    });
+    $("more").hidden = list.length <= shown;
+  }
+
+  function readout(i) {
+    var r = rows[i], el = $("readout");
+    el.textContent = "";
+    function part(label, val, cls) {
+      var s = document.createElement("span");
+      s.appendChild(document.createTextNode(label + " "));
+      var b = document.createElement("b"); b.textContent = val; if (cls) b.className = cls;
+      s.appendChild(b); el.appendChild(s);
+    }
+    part("", fmtDate(r.date));
+    part("MR20", r.MR20.toFixed(1) + " (" + sign(r.MR20_change) + ")", r.MR20_change >= 0 ? "pos" : "neg");
+    part("U4", r.U4); part("D4", r.D4); part("W20", r.W20);
+    el.appendChild(chip(r.regime));
+  }
+
+  var NS = "http://www.w3.org/2000/svg";
+  function s(tag, attrs, parent) {
+    var e = document.createElementNS(NS, tag);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  function drawChart() {
+    var host = $("chart");
+    var W = Math.max(300, host.clientWidth || 700);
+    var data = rows.slice(-rangeN), n = data.length;
+    var padL = 30, padR = 14, padT = 10, H1 = W < 520 ? 190 : 230, gap = 28, H2 = 80, axisH = 22;
+    var H = padT + H1 + gap + H2 + axisH;
+    host.textContent = "";
+    var svg = s("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "MR20 line chart with U4 and D4 bars" }, host);
+    var plotW = W - padL - padR;
+    function x(i) { return padL + (n === 1 ? plotW / 2 : plotW * i / (n - 1)); }
+    function y1(v) { return padT + H1 * (1 - v / 100); }
+
+    s("rect", { x: padL, y: y1(100), width: plotW, height: y1(80) - y1(100), fill: "var(--r-overbought)", opacity: 0.12 }, svg);
+    s("rect", { x: padL, y: y1(20), width: plotW, height: y1(0) - y1(20), fill: "var(--r-oversold)", opacity: 0.12 }, svg);
+    [0, 20, 40, 60, 80, 100].forEach(function (v) {
+      s("line", { x1: padL, x2: W - padR, y1: y1(v), y2: y1(v), stroke: "var(--line)", "stroke-width": v === 40 ? 1.2 : 1, "stroke-dasharray": v === 40 ? "4 3" : "0" }, svg);
+      var t = s("text", { x: padL - 6, y: y1(v) + 3.5, "text-anchor": "end", class: "t-axis" }, svg);
+      t.textContent = v;
+    });
+
+    var d = "";
+    data.forEach(function (r, i) { d += (i ? "L" : "M") + x(i).toFixed(1) + " " + y1(r.MR20).toFixed(1); });
+    s("path", { d: d, fill: "none", stroke: "var(--accent)", "stroke-width": n > 250 ? 1.2 : 1.8, "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
+    if (n <= 130) {
+      data.forEach(function (r, i) {
+        s("circle", { cx: x(i), cy: y1(r.MR20), r: n <= 60 ? 3.4 : 2.4, style: "fill: var(--r-" + key(r.regime).toLowerCase() + ")" }, svg);
+      });
+    }
+    var last = data[n - 1];
+    s("circle", { cx: x(n - 1), cy: y1(last.MR20), r: 5.5, fill: "none", stroke: "var(--fg)", "stroke-width": 1.5 }, svg);
+    var lx = x(n - 1), anchor = lx > W - 60 ? "end" : "start";
+    var lt = s("text", { x: anchor === "end" ? lx - 9 : lx + 9, y: y1(last.MR20) - 9, "text-anchor": anchor, class: "t-axis", style: "fill: var(--fg); font-weight: 600; font-size: 12px" }, svg);
+    lt.textContent = last.MR20.toFixed(1);
+
+    // breadth bars
+    var top = padT + H1 + gap, mid = top + H2 / 2;
+    var mx = Math.max(50, Math.max.apply(null, data.map(function (r) { return Math.max(r.U4, r.D4); })));
+    var half = H2 / 2 - 2, bw = Math.max(1, Math.min(14, plotW / n * 0.68));
+    s("line", { x1: padL, x2: W - padR, y1: mid, y2: mid, stroke: "var(--line)" }, svg);
+    data.forEach(function (r, i) {
+      var uh = half * r.U4 / mx, dh = half * r.D4 / mx;
+      s("rect", { x: x(i) - bw / 2, y: mid - uh, width: bw, height: Math.max(0.5, uh), fill: "var(--up)", opacity: 0.85 }, svg);
+      s("rect", { x: x(i) - bw / 2, y: mid, width: bw, height: Math.max(0.5, dh), fill: "var(--down)", opacity: 0.85 }, svg);
+    });
+    var tu = s("text", { x: padL - 6, y: top + 9, "text-anchor": "end", class: "t-axis" }, svg); tu.textContent = "U4";
+    var td_ = s("text", { x: padL - 6, y: top + H2 - 2, "text-anchor": "end", class: "t-axis" }, svg); td_.textContent = "D4";
+
+    // x axis labels
+    var ticks = W < 520 ? 4 : 6, long = n > 200;
+    for (var k = 0; k < ticks; k++) {
+      var i = Math.round((n - 1) * k / (ticks - 1));
+      var tx = s("text", { x: x(i), y: H - 5, "text-anchor": k === 0 ? "start" : k === ticks - 1 ? "end" : "middle", class: "t-axis" }, svg);
+      var dd = data[i].date.split("-");
+      tx.textContent = long ? MON[+dd[1] - 1] + " " + dd[0].slice(2) : dd[2] + " " + MON[+dd[1] - 1];
+    }
+
+    // hover
+    var vline = s("line", { y1: padT, y2: top + H2, stroke: "var(--muted)", "stroke-width": 1, opacity: 0, "pointer-events": "none" }, svg);
+    var hit = s("rect", { x: padL, y: 0, width: plotW, height: H, fill: "transparent" }, svg);
+    function move(ev) {
+      var box = svg.getBoundingClientRect();
+      var px = (ev.clientX - box.left) * (W / box.width);
+      var i = Math.max(0, Math.min(n - 1, Math.round((px - padL) / plotW * (n - 1))));
+      vline.setAttribute("x1", x(i)); vline.setAttribute("x2", x(i)); vline.setAttribute("opacity", 0.6);
+      readout(rows.length - n + i);
+    }
+    function leave() { vline.setAttribute("opacity", 0); readout(rows.length - 1); }
+    hit.addEventListener("pointermove", move);
+    hit.addEventListener("pointerdown", move);
+    hit.addEventListener("pointerleave", leave);
+    readout(rows.length - 1);
+  }
+
+  function buildStatic() {
+    var g = $("guide");
+    GUIDE.forEach(function (r) {
+      var tr = document.createElement("tr");
+      var c = document.createElement("td"); c.appendChild(chip(r[0])); tr.appendChild(c);
+      tr.appendChild(td(r[1]));
+      tr.appendChild(td(r[2], "r num"));
+      tr.appendChild(td((r[3] > 0 ? "+" : "") + r[3].toFixed(2) + "%", "r num " + (r[3] > 0 ? "pos" : "neg")));
+      tr.appendChild(td(r[4]));
+      g.appendChild(tr);
+    });
+    var sel = $("f-regime");
+    REG.forEach(function (k) { var o = document.createElement("option"); o.value = k; o.textContent = k === "Falling" ? "Falling (3+ days)" : k; sel.appendChild(o); });
+    var lg = $("legend");
+    REG.forEach(function (k) {
+      var sp = document.createElement("span"); sp.className = "rg-" + k;
+      var i = document.createElement("i"); sp.appendChild(i); sp.appendChild(document.createTextNode(k)); lg.appendChild(sp);
+    });
+    $("range").addEventListener("click", function (e) {
+      var b = e.target.closest("button"); if (!b) return;
+      rangeN = +b.dataset.n;
+      Array.prototype.forEach.call($("range").children, function (x) { x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+      drawChart();
+    });
+    $("f-regime").addEventListener("change", function () { shown = 25; renderTable(); });
+    $("more").addEventListener("click", function () { shown += 50; renderTable(); });
+  }
+
+  function fail(msg) { var e = $("err"); e.textContent = msg; e.style.display = "block"; }
+
+  buildStatic();
+  fetch("data.json", { cache: "no-store" }).then(function (r) {
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    return r.json();
+  }).then(function (j) {
+    rows = j.rows;
+    renderToday(); renderTable(); drawChart();
+    if (window.ResizeObserver) {
+      var t, last = $("chart").clientWidth;
+      new ResizeObserver(function () {
+        var w = $("chart").clientWidth;
+        if (w === last) return;
+        last = w; clearTimeout(t); t = setTimeout(drawChart, 80);
+      }).observe($("chart"));
+    }
+  }).catch(function (err) {
+    fail("data.json load nahi hua (" + err.message + "). Site ko GitHub Pages ya local server se kholo, file double-click se nahi.");
+  });
+})();
+</script>
+
+</body>
+</html>
