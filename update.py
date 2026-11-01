@@ -8,7 +8,8 @@ Files it keeps in this folder:
   history.csv.gz   last ~150 trading days of per-stock close/volume (EMA warm-up)
 
 Definitions (calibrate once against your Chartink numbers, see README):
-  universe  EQ series stocks with turnover >= 10 crore that day
+  universe  same as the Chartink filter: 10-day avg volume x close / 1 crore > 10
+            AND close > 10 (rupees)
   MR20      % of universe with adjusted close above its 20-day EMA
   U4 / D4   close up / down 4%+ vs previous close AND volume above previous day
   W20       adjusted close up 20%+ vs 5 trading days ago
@@ -32,7 +33,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data.json")
 HIST = os.path.join(HERE, "history.csv.gz")
 
-TURNOVER_MIN = 10e7  # Rs 10 crore
+AVG_TURNOVER_CR = 10  # 10-day avg volume x close, in crore
+MIN_PRICE = 10
+METHOD = "chartink-v2"  # bump when the calculation changes (forces a recompute)
+BASE_END = "2026-10-09"  # last day that comes from the original sheet
 U4_PCT = 0.04
 WARMUP_DAYS = 150  # calendar days of history kept for the EMA
 
@@ -106,7 +110,8 @@ def compute_day(hist: pd.DataFrame, day: str):
     adj = close * factor
 
     ema = adj.ewm(span=20, adjust=False, min_periods=20).mean()
-    universe = turn.loc[day] >= TURNOVER_MIN
+    avg_vol10 = vol.rolling(10, min_periods=10).mean().loc[day]
+    universe = (avg_vol10 * close.loc[day] / 1e7 > AVG_TURNOVER_CR) & (close.loc[day] > MIN_PRICE)
     last_adj, last_ema = adj.loc[day], ema.loc[day]
     valid = universe & last_ema.notna() & last_adj.notna()
     mr20 = round(100 * (last_adj[valid] > last_ema[valid]).mean(), 1)
@@ -129,6 +134,9 @@ def main():
     with open(DATA) as f:
         payload = json.load(f)
     rows = payload["rows"]
+    if payload.get("method") != METHOD:
+        # calculation changed: keep the sheet's history, recompute everything after it
+        rows = [r for r in rows if r["date"] <= BASE_END]
     last = dt.date.fromisoformat(rows[-1]["date"])
     today = dt.date.today()
 
@@ -164,7 +172,7 @@ def main():
         print("added", base[-1])
     full = enrich(base)
     with open(DATA, "w") as f:
-        json.dump({"updated": full[-1]["date"], "rows": full}, f, separators=(",", ":"))
+        json.dump({"updated": full[-1]["date"], "method": METHOD, "rows": full}, f, separators=(",", ":"))
 
 
 if __name__ == "__main__":
